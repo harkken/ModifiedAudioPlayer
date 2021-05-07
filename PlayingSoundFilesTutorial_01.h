@@ -60,8 +60,10 @@ public:
         auto volumeText = text.upToFirstOccurrenceOf("dB", false, false).trim();
 
         return volumeText.equalsIgnoreCase("-INF") ? minusInfinityDB : volumeText.getFloatValue();
-
-
+    }
+    juce::String getTextFromValue(double value)  // function to return 2 decimal points in text area
+    {
+        return juce::Decibels::toString(value);
     }
 
 private:
@@ -78,6 +80,14 @@ public:
     MainContentComponent()
         : state (Stopped)
     {
+        volumeSlider.setRange(-100, -12);
+        volumeSlider.setSliderStyle(juce::Slider::LinearHorizontal); // extra, but shows the type of slider being used
+        volumeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 100, 20);
+        volumeSlider.onValueChange = [this] {
+            level = juce::Decibels::decibelsToGain((float)volumeSlider.getValue()); };
+        volumeSlider.setValue(juce::Decibels::gainToDecibels(level));
+        volumeLabel.setText("Volume", juce::dontSendNotification);
+
         addAndMakeVisible (&openButton);
         openButton.setButtonText ("Open...");
         openButton.onClick = [this] { openButtonClicked(); };
@@ -94,7 +104,11 @@ public:
         stopButton.setColour (juce::TextButton::buttonColourId, juce::Colours::red);
         stopButton.setEnabled (false);
 
-        setSize (300, 200);
+        // add volume slider underneath the start/stop buttons
+        addAndMakeVisible(volumeLabel);
+        addAndMakeVisible(volumeSlider);
+
+        setSize (600, 100);
 
         formatManager.registerBasicFormats();       // [1]
         transportSource.addChangeListener (this);   // [2]
@@ -111,15 +125,26 @@ public:
     {
         transportSource.prepareToPlay (samplesPerBlockExpected, sampleRate);
     }
-
+    // TODO: fix volume control and GUI overlap
     void getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToFill) override
-    {
+    {   
+        auto currentLevel = level;
+        auto levelScale = currentLevel * 2.0f;
+
+        
         if (readerSource.get() == nullptr)
         {
             bufferToFill.clearActiveBufferRegion();
             return;
         }
 
+        for (auto channel = 0; channel < bufferToFill.buffer->getNumChannels(); ++channel)
+        {
+            auto* buffer = bufferToFill.buffer->getWritePointer(channel, bufferToFill.startSample);
+
+            for (auto sample = 0; sample < bufferToFill.numSamples; ++sample)
+                buffer[sample] = random.nextFloat() * levelScale - currentLevel;
+        }
         transportSource.getNextAudioBlock (bufferToFill);
     }
 
@@ -133,6 +158,9 @@ public:
         openButton.setBounds (10, 10, getWidth() - 20, 20);
         playButton.setBounds (10, 40, getWidth() - 20, 20);
         stopButton.setBounds (10, 70, getWidth() - 20, 20);
+
+        volumeLabel.setBounds(10, 80, 120, 20);
+        volumeSlider.setBounds(130, 10, getWidth() - 140, 20);
     }
 
     void changeListenerCallback (juce::ChangeBroadcaster* source) override
@@ -220,6 +248,12 @@ private:
     juce::TextButton openButton;
     juce::TextButton playButton;
     juce::TextButton stopButton;
+
+    VolumeSlider volumeSlider;
+    juce::Label  volumeLabel;
+    float level = 0.0f;
+
+    juce::Random random;
 
     juce::AudioFormatManager formatManager;
     std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
